@@ -442,12 +442,17 @@ def collect_srcjars(targets):
             srcjars += [target.srcjars.srcjar]
     return srcjars
 
-def add_labels_of_jars_to(jars2labels, dependency, all_jars):
+def add_labels_of_jars_to(jars2labels, dependency, all_jars, direct_jars):
+  for jar in direct_jars:
+    add_label_of_direct_jar_to(jars2labels, dependency, jar)
   for jar in all_jars:
-    add_label_of_jar_to(jars2labels, dependency, jar)
+    add_label_of_indirect_jar_to(jars2labels, dependency, jar)
 
 
-def add_label_of_jar_to(jars2labels, dependency, jar):
+def add_label_of_direct_jar_to(jars2labels, dependency, jar):
+  jars2labels[jar.path] = dependency.label
+
+def add_label_of_indirect_jar_to(jars2labels, dependency, jar):
  if label_already_exists(jars2labels, jar):
    return
 
@@ -456,8 +461,11 @@ def add_label_of_jar_to(jars2labels, dependency, jar):
  if provider_of_dependency_contains_label_of(dependency, jar):
    jars2labels[jar.path] = dependency.jars_to_labels[jar.path]
  else:
-   jars2labels[jar.path] = dependency.label
-
+   #scala_lib(a) depends on java_lib(b) which depends on java_lib(c) and a uses c without declaring it
+   jars2labels[jar.path] = "unknown_label_of_path_{jar_path}_from_dependency_{dependency}".format(
+       jar_path = jar.path,
+       dependency = dependency.label
+       )
 
 def label_already_exists(jars2labels, jar):
   return jar.path in jars2labels
@@ -510,19 +518,24 @@ def _collect_jars_when_dependency_analyzer_is_on(dep_targets):
   runtime_jars = depset()
 
   for dep_target in dep_targets:
+    current_deps_compile_jars = depset()
+    current_deps_transitive_compile_jars = depset()
+
     if java_common.provider in dep_target:
         java_provider = dep_target[java_common.provider]
-        compile_jars += java_provider.compile_jars
-        transitive_compile_jars += java_provider.transitive_compile_time_jars + java_provider.compile_jars
+        current_deps_compile_jars = java_provider.compile_jars
+        current_deps_transitive_compile_jars = java_provider.transitive_compile_time_jars + java_provider.compile_jars
         runtime_jars += java_provider.transitive_runtime_jars
     else:
         # support http_file pointed at a jar. http_jar uses ijar,
         # which breaks scala macros
-        compile_jars += filter_not_sources(dep_target.files)
+        current_deps_compile_jars = filter_not_sources(dep_target.files)
         runtime_jars += filter_not_sources(dep_target.files)
-        transitive_compile_jars += filter_not_sources(dep_target.files)
+        current_deps_transitive_compile_jars = filter_not_sources(dep_target.files)
 
-    add_labels_of_jars_to(jars2labels, dep_target, transitive_compile_jars)
+    compile_jars += current_deps_compile_jars
+    transitive_compile_jars += current_deps_transitive_compile_jars
+    add_labels_of_jars_to(jars2labels, dep_target, current_deps_transitive_compile_jars, current_deps_compile_jars)
 
   return struct(compile_jars = compile_jars,
     transitive_runtime_jars = runtime_jars,
@@ -560,7 +573,7 @@ def _collect_jars_from_common_ctx(ctx, extra_deps = [], extra_runtime_deps = [])
     deps_jars = collect_jars(ctx.attr.deps + auto_deps + extra_deps, dependency_analyzer_is_off)
     (cjars, transitive_rjars, jars2labels, transitive_compile_jars) = (deps_jars.compile_jars, deps_jars.transitive_runtime_jars, deps_jars.jars2labels, deps_jars.transitive_compile_jars)
 
-    runtime_dep_jars =  collect_jars(ctx.attr.runtime_deps + extra_runtime_deps, dependency_analyzer_is_off)
+    runtime_dep_jars =  collect_jars(ctx.attr.runtime_deps + extra_runtime_deps, False) #replace False with a different way to not collect labels for runtime deps
     transitive_rjars += runtime_dep_jars.transitive_runtime_jars
 
     if not dependency_analyzer_is_off:
@@ -793,7 +806,7 @@ def _scala_test_impl(ctx):
 
     if is_dependency_analyzer_on(ctx):
       transitive_compile_jars += scalatest_jars
-      add_labels_of_jars_to(jars_to_labels, ctx.attr._scalatest, scalatest_jars)
+      add_labels_of_jars_to(jars_to_labels, ctx.attr._scalatest, scalatest_jars, scalatest_jars)
 
     args = " ".join([
         "-R \"{path}\"".format(path=ctx.outputs.jar.short_path),
