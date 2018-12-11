@@ -404,7 +404,7 @@ scala_proto_srcjar = rule(
             mandatory = True,
             allow_rules = [
                 "proto_library", "java_proto_library", "java_library",
-                "scala_library"
+                "scala_library","scala_import"
             ]),
         "flags": attr.string_list(default = []),
         "generator": attr.label(
