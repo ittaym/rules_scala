@@ -384,7 +384,7 @@ scalapb_proto_srcjar = rule(
     attrs={
         "deps": attr.label_list(
             mandatory=True,
-            allow_rules=["proto_library", "java_proto_library", "scala_library"]
+            allow_rules=["proto_library", "java_proto_library", "scala_library","scala_import"]
         ),
         "with_grpc": attr.bool(default=False),
         "with_java": attr.bool(default=False),
